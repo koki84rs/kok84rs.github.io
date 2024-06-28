@@ -1,0 +1,363 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>8ビットスタイル シューティングゲーム</title>
+    <style>
+        body {
+            display: flex;
+            justify-content: center;
+            align-items: flex-start;
+            height: 100vh;
+            margin: 0;
+            background-color: #000;
+            color: #fff;
+            font-family: 'Courier New', monospace;
+        }
+        #gameContainer {
+            display: flex;
+            margin-top: 20px;
+        }
+        canvas {
+            border: 2px solid #0f0;
+        }
+        #sidebar {
+            width: 200px;
+            margin-left: 20px;
+            padding: 10px;
+            background-color: #222;
+            border: 2px solid #0f0;
+        }
+        #score, #health, #powerLevel {
+            font-size: 18px;
+            margin-bottom: 10px;
+        }
+        #highScores {
+            margin-top: 20px;
+        }
+        #highScores h3 {
+            margin-bottom: 10px;
+            color: #0f0;
+        }
+        #highScoreList {
+            padding-left: 20px;
+        }
+    </style>
+</head>
+<body>
+    <div id="gameContainer">
+        <canvas id="gameCanvas" width="400" height="600"></canvas>
+        <div id="sidebar">
+            <div id="score">スコア: 0</div>
+            <div id="health">ライフ: 3</div>
+            <div id="powerLevel">パワーレベル: 1</div>
+            <div id="highScores">
+                <h3>ハイスコア</h3>
+                <ol id="highScoreList"></ol>
+            </div>
+        </div>
+    </div>
+    <script>
+        const canvas = document.getElementById('gameCanvas');
+        const ctx = canvas.getContext('2d');
+        const scoreElement = document.getElementById('score');
+        const healthElement = document.getElementById('health');
+        const powerLevelElement = document.getElementById('powerLevel');
+        const highScoreList = document.getElementById('highScoreList');
+
+        // 効果音の設定
+        const shootSound = new Audio('https://cdnjs.cloudflare.com/ajax/libs/soundmanager2/2.97a.20150601/demo/_mp3/highhat.mp3');
+        const explosionSound = new Audio('https://cdnjs.cloudflare.com/ajax/libs/soundmanager2/2.97a.20150601/demo/_mp3/mouseover2.mp3');
+        const powerUpSound = new Audio('https://cdnjs.cloudflare.com/ajax/libs/soundmanager2/2.97a.20150601/demo/_mp3/click-high.mp3');
+        const damageSound = new Audio('https://cdnjs.cloudflare.com/ajax/libs/soundmanager2/2.97a.20150601/demo/_mp3/button-3.mp3');
+
+        const player = {
+            x: canvas.width / 2,
+            y: canvas.height - 30,
+            width: 40,
+            height: 30,
+            speed: 5,
+            health: 3,
+            powerLevel: 1
+        };
+
+        let bullets = [];
+        let enemies = [];
+        let powerUps = [];
+        let score = 0;
+        let highScores = [];
+
+        const bulletSpeed = 7;
+        const enemySpeed = 2;
+        const powerUpSpeed = 1;
+
+        const keys = {};
+
+        function drawPlayer() {
+            ctx.fillStyle = '#0f0';
+            ctx.beginPath();
+            ctx.moveTo(player.x, player.y - player.height / 2);
+            ctx.lineTo(player.x - player.width / 2, player.y + player.height / 2);
+            ctx.lineTo(player.x + player.width / 2, player.y + player.height / 2);
+            ctx.closePath();
+            ctx.fill();
+        }
+
+        function drawBullets() {
+            bullets.forEach(bullet => {
+                ctx.fillStyle = getBulletColor();
+                ctx.fillRect(bullet.x - 2, bullet.y - 8, 4, 8);
+            });
+        }
+
+        function getBulletColor() {
+            switch(player.powerLevel) {
+                case 1: return '#f00';
+                case 2: return '#ff0';
+                case 3: return '#0ff';
+                default: return '#fff';
+            }
+        }
+
+        function drawEnemies() {
+            enemies.forEach(enemy => {
+                ctx.fillStyle = '#f00';
+                // 8ビットスタイルのエイリアン
+                ctx.fillRect(enemy.x - 15, enemy.y - 15, 30, 30);
+                ctx.clearRect(enemy.x - 10, enemy.y - 10, 20, 20);
+                ctx.fillRect(enemy.x - 5, enemy.y - 5, 10, 10);
+                ctx.fillRect(enemy.x - 15, enemy.y + 5, 5, 5);
+                ctx.fillRect(enemy.x + 10, enemy.y + 5, 5, 5);
+            });
+        }
+
+        function drawPowerUps() {
+            powerUps.forEach(powerUp => {
+                ctx.fillStyle = '#ff0';
+                ctx.beginPath();
+                ctx.moveTo(powerUp.x, powerUp.y - 10);
+                ctx.lineTo(powerUp.x - 10, powerUp.y + 10);
+                ctx.lineTo(powerUp.x + 10, powerUp.y + 10);
+                ctx.closePath();
+                ctx.fill();
+            });
+        }
+
+        function movePlayer() {
+            if (keys.ArrowLeft && player.x > player.width / 2) {
+                player.x -= player.speed;
+            }
+            if (keys.ArrowRight && player.x < canvas.width - player.width / 2) {
+                player.x += player.speed;
+            }
+        }
+
+        function moveBullets() {
+            bullets = bullets.filter(bullet => {
+                bullet.y -= bulletSpeed;
+                return bullet.y > 0;
+            });
+        }
+
+        function moveEnemies() {
+            enemies = enemies.filter(enemy => {
+                enemy.y += enemySpeed;
+                return enemy.y < canvas.height;
+            });
+        }
+
+        function movePowerUps() {
+            powerUps = powerUps.filter(powerUp => {
+                powerUp.y += powerUpSpeed;
+                return powerUp.y < canvas.height;
+            });
+        }
+
+        function checkCollisions() {
+            enemies = enemies.filter(enemy => {
+                const enemyHit = bullets.some((bullet, bulletIndex) => {
+                    if (
+                        bullet.x > enemy.x - 15 &&
+                        bullet.x < enemy.x + 15 &&
+                        bullet.y > enemy.y - 15 &&
+                        bullet.y < enemy.y + 15
+                    ) {
+                        bullets.splice(bulletIndex, 1);
+                        score += 10;
+                        updateScore();
+                        explosionSound.play();
+                        return true;
+                    }
+                    return false;
+                });
+                return !enemyHit;
+            });
+
+            enemies.forEach((enemy, index) => {
+                if (
+                    enemy.x > player.x - player.width / 2 &&
+                    enemy.x < player.x + player.width / 2 &&
+                    enemy.y > player.y - player.height / 2 &&
+                    enemy.y < player.y + player.height / 2
+                ) {
+                    enemies.splice(index, 1);
+                    damagePlayer();
+                }
+            });
+
+            enemies.forEach((enemy, index) => {
+                if (enemy.y + 15 >= canvas.height) {
+                    enemies.splice(index, 1);
+                    damagePlayer();
+                }
+            });
+
+            powerUps = powerUps.filter(powerUp => {
+                if (
+                    powerUp.x > player.x - player.width / 2 &&
+                    powerUp.x < player.x + player.width / 2 &&
+                    powerUp.y > player.y - player.height / 2 &&
+                    powerUp.y < player.y + player.height / 2
+                ) {
+                    upgradePower();
+                    return false;
+                }
+                return true;
+            });
+        }
+
+        function damagePlayer() {
+            player.health--;
+            updateHealth();
+            damageSound.play();
+            if (player.health <= 0) {
+                endGame();
+            }
+        }
+
+        function upgradePower() {
+            if (player.powerLevel < 3) {
+                player.powerLevel++;
+                updatePowerLevel();
+                powerUpSound.play();
+            }
+        }
+
+        function endGame() {
+            updateHighScores(score);
+            alert("ゲームオーバー！ スコア: " + score);
+            resetGame();
+        }
+
+        function resetGame() {
+            player.health = 3;
+            player.powerLevel = 1;
+            score = 0;
+            enemies = [];
+            bullets = [];
+            powerUps = [];
+            updateScore();
+            updateHealth();
+            updatePowerLevel();
+        }
+
+        function updateHighScores(newScore) {
+            highScores.push(newScore);
+            highScores.sort((a, b) => b - a);
+            highScores = highScores.slice(0, 5);
+            displayHighScores();
+        }
+
+        function displayHighScores() {
+            highScoreList.innerHTML = '';
+            highScores.forEach(score => {
+                const li = document.createElement('li');
+                li.textContent = score;
+                highScoreList.appendChild(li);
+            });
+        }
+
+        function spawnEnemy() {
+            if (Math.random() < 0.02) {
+                enemies.push({
+                    x: Math.random() * canvas.width,
+                    y: 0
+                });
+            }
+        }
+
+        function spawnPowerUp() {
+            if (Math.random() < 0.005) {
+                powerUps.push({
+                    x: Math.random() * canvas.width,
+                    y: 0
+                });
+            }
+        }
+
+        function updateScore() {
+            scoreElement.textContent = `スコア: ${score}`;
+        }
+
+        function updateHealth() {
+            healthElement.textContent = `ライフ: ${player.health}`;
+        }
+
+        function updatePowerLevel() {
+            powerLevelElement.textContent = `パワーレベル: ${player.powerLevel}`;
+        }
+
+        function gameLoop() {
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+            movePlayer();
+            moveBullets();
+            moveEnemies();
+            movePowerUps();
+            checkCollisions();
+            spawnEnemy();
+            spawnPowerUp();
+
+            drawPlayer();
+            drawBullets();
+            drawEnemies();
+            drawPowerUps();
+
+            requestAnimationFrame(gameLoop);
+        }
+
+        document.addEventListener('keydown', (e) => {
+            keys[e.code] = true;
+            if (e.code === 'Space') {
+                fireBullets();
+                shootSound.play();
+            }
+        });
+
+        document.addEventListener('keyup', (e) => {
+            keys[e.code] = false;
+        });
+
+        function fireBullets() {
+            switch(player.powerLevel) {
+                case 1:
+                    bullets.push({ x: player.x, y: player.y - player.height / 2 });
+                    break;
+                case 2:
+                    bullets.push({ x: player.x - 10, y: player.y - player.height / 2 });
+                    bullets.push({ x: player.x + 10, y: player.y - player.height / 2 });
+                    break;
+                case 3:
+                    bullets.push({ x: player.x - 20, y: player.y - player.height / 2 });
+                    bullets.push({ x: player.x, y: player.y - player.height / 2 });
+                    bullets.push({ x: player.x + 20, y: player.y - player.height / 2 });
+                    break;
+            }
+        }
+
+        gameLoop();
+        displayHighScores();
+    </script>
+</body>
+</html>
